@@ -2,7 +2,7 @@
 set -eux
 PREFIX=${PREFIX:-${HOME}}
 
-TAR_NAME="pin-3.20-98437-gf02b61307-gcc-linux"
+TAR_NAME="pin-3.28-98749-g6643ecee5-gcc-linux"
 
 wget https://software.intel.com/sites/landingpage/pintool/downloads/${TAR_NAME}.tar.gz
 tar -C ${PREFIX} -xzf ${TAR_NAME}.tar.gz

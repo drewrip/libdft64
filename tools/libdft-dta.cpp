@@ -50,6 +50,7 @@
 #include "libdft_api.h"
 #include "libdft_core.h"
 #include "syscall_desc.h"
+#include "ins_helper.h"
 #include "tagmap.h"
 
 #define WORD_LEN	4	/* size in bytes of a word value */
@@ -64,13 +65,13 @@
 
 
 /* thread context */
-extern REG thread_ctx_ptr;
+static REG thread_ctx_ptr;
 
 /* ins descriptors */
-extern ins_desc_t ins_desc[XED_ICLASS_LAST];
+static ins_desc_t ins_desc[XED_ICLASS_LAST];
 
 /* syscall descriptors */
-extern syscall_desc_t syscall_desc[SYSCALL_MAX];
+static syscall_desc_t syscall_desc[SYSCALL_MAX];
 
 /* socket related syscalls */
 static int sock_syscalls[] = {
@@ -726,9 +727,12 @@ post_open_hook(THREADID tid, syscall_ctx_t *ctx)
 int
 main(int argc, char **argv)
 {
+    printf("Inside main\n");
 	/* initialize symbol processing */
 	PIN_InitSymbols();
-	
+
+    printf("After InitSymbols\n");
+
 	/* initialize Pin; optimized branch */
 	if (unlikely(PIN_Init(argc, argv)))
 		/* Pin initialization failed */
@@ -804,9 +808,12 @@ main(int argc, char **argv)
 	/* add stdin to the interesting descriptors set */
 	if (stdin_.Value() != 0)
 		fdset.insert(STDIN_FILENO);
-
+    
+    printf("Finished instrumenting instructions\n");
 	/* start Pin */
 	PIN_StartProgram();
+
+    printf("Finished program execution\n");
 
 	/* typically not reached; make the compiler happy */
 	return EXIT_SUCCESS;
