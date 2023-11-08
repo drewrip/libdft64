@@ -126,7 +126,8 @@ static KNOB<size_t> net(KNOB_MODE_WRITEONCE, "pintool", "n", "1", "");
 static void PIN_FAST_ANALYSIS_CALL
 alert(ADDRINT ins, ADDRINT bt)
 {
-    printf("alert!\n");
+    printf("libdft-dta: alert!\n");
+
 	/* log file */
 	FILE *logfile;
 
@@ -189,7 +190,7 @@ static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_reg32(ADDRINT reg, ADDRINT addr)
 {
 	/* 
-	 * combine the register tag along with t            printf("case: __NR_socket\n");he tag
+	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
 	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK32, tagmap_getl(addr));
@@ -875,13 +876,9 @@ post_open_hook(THREADID tid, syscall_ctx_t *ctx)
  * tool using libdft
  */
 int
-main(int argc, char **argv)
-{
-    printf("Inside main\n");
+main(int argc, char **argv){
 	/* initialize symbol processing */
 	PIN_InitSymbols();
-
-    printf("After InitSymbols\n");
 
 	/* initialize Pin; optimized branch */
 	if (unlikely(PIN_Init(argc, argv)))
@@ -959,11 +956,8 @@ main(int argc, char **argv)
 	if (stdin_.Value() != 0)
 		fdset.insert(STDIN_FILENO);
     
-    printf("Finished instrumenting instructions\n");
 	/* start Pin */
 	PIN_StartProgram();
-
-    printf("Finished program execution\n");
 
 	/* typically not reached; make the compiler happy */
 	return EXIT_SUCCESS;
