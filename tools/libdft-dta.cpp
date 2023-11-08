@@ -69,7 +69,7 @@
 
 
 /* thread context */
-extern REG thread_ctx_ptr;
+extern thread_ctx_t* threads_ctx;
 
 /* ins descriptors */
 extern ins_desc_t ins_desc[XED_ICLASS_LAST];
@@ -166,13 +166,13 @@ alert(ADDRINT ins, ADDRINT bt)
  * returns:	0 (clean), >0 (tainted)
  */
 static ADDRINT PIN_FAST_ANALYSIS_CALL
-assert_reg64(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
+assert_reg64(ADDRINT reg, ADDRINT addr)
 {
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(thread_ctx->vcpu.gpr[reg][0], tagmap_getn(addr, 8));
+	return tag_combine(threads_ctx->vcpu.gpr[reg][0], tagmap_getn(addr, 8));
 }
 
 /*
@@ -186,13 +186,13 @@ assert_reg64(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
  * returns:	0 (clean), >0 (tainted)
  */
 static ADDRINT PIN_FAST_ANALYSIS_CALL
-assert_reg32(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
+assert_reg32(ADDRINT reg, ADDRINT addr)
 {
 	/* 
-	 * combine the register tag along with the tag
+	 * combine the register tag along with t            printf("case: __NR_socket\n");he tag
 	 * markings of the target address
 	 */
-	return tag_combine(thread_ctx->vcpu.gpr[reg][0] & VCPU_MASK32, tagmap_getl(addr));
+	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK32, tagmap_getl(addr));
 }
 
 /*
@@ -206,13 +206,13 @@ assert_reg32(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
  * returns:	0 (clean), >0 (tainted)
  */
 static ADDRINT PIN_FAST_ANALYSIS_CALL
-assert_reg16(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
+assert_reg16(ADDRINT reg, ADDRINT addr)
 {
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(thread_ctx->vcpu.gpr[reg][0] & VCPU_MASK16, tagmap_getw(addr));
+	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK16, tagmap_getw(addr));
 }
 
 /*
@@ -226,13 +226,13 @@ assert_reg16(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
  * returns:	0 (clean), >0 (tainted)
  */
 static ADDRINT PIN_FAST_ANALYSIS_CALL
-assert_reg8(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
+assert_reg8(ADDRINT reg, ADDRINT addr)
 {
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(thread_ctx->vcpu.gpr[reg][0] & VCPU_MASK8, tagmap_getw(addr));
+	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK8, tagmap_getw(addr));
 }
 
 /*
@@ -309,7 +309,6 @@ assert_mem8(ADDRINT paddr, ADDRINT taddr)
 static void
 dta_instrument_jmp_call(INS ins)
 {
-    printf("instrument jmp call!\n");
 	/* temporaries */
 	REG reg;
 
@@ -336,7 +335,6 @@ dta_instrument_jmp_call(INS ins)
 					IPOINT_BEFORE,
 					(AFUNPTR)assert_reg64,
 					IARG_FAST_ANALYSIS_CALL,
-					IARG_REG_VALUE, thread_ctx_ptr,
 					IARG_UINT32, REG_INDX(reg),
 					IARG_REG_VALUE, reg,
 					IARG_END);
@@ -350,7 +348,6 @@ dta_instrument_jmp_call(INS ins)
 					IPOINT_BEFORE,
 					(AFUNPTR)assert_reg32,
 					IARG_FAST_ANALYSIS_CALL,
-					IARG_REG_VALUE, thread_ctx_ptr,
 					IARG_UINT32, REG_INDX(reg),
 					IARG_REG_VALUE, reg,
 					IARG_END);
@@ -364,7 +361,6 @@ dta_instrument_jmp_call(INS ins)
 					IPOINT_BEFORE,
 					(AFUNPTR)assert_reg16,
 					IARG_FAST_ANALYSIS_CALL,
-					IARG_REG_VALUE, thread_ctx_ptr,
 					IARG_UINT32, REG_INDX(reg),
 					IARG_REG_VALUE, reg,
 					IARG_END);
@@ -378,7 +374,6 @@ dta_instrument_jmp_call(INS ins)
 					IPOINT_BEFORE,
 					(AFUNPTR)assert_reg8,
 					IARG_FAST_ANALYSIS_CALL,
-					IARG_REG_VALUE, thread_ctx_ptr,
 					IARG_UINT32, REG_INDX(reg),
 					IARG_REG_VALUE, reg,
 					IARG_END);
@@ -464,7 +459,7 @@ dta_instrument_jmp_call(INS ins)
 static void
 dta_instrument_ret(INS ins)
 {
-    printf("instrument ret\n");
+
 	/* size analysis */
     if (INS_MemoryReadSize(ins) == QUAD_LEN)
 		/*
@@ -537,8 +532,8 @@ dta_instrument_ret(INS ins)
 static void
 post_read_hook(THREADID tid, syscall_ctx_t *ctx)
 {
-        /* read() was not successful; optimized branch */
-        if (unlikely((long)ctx->ret <= 0))
+    /* read() was not successful; optimized branch */
+    if (unlikely((long)ctx->ret <= 0))
                 return;
 	
 	/* taint-source */
@@ -625,7 +620,7 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 	size_t tot;
 	
 	/* socket call arguments */
-	unsigned long *args = (unsigned long *)ctx->arg[SYSCALL_ARG0];
+	unsigned long *args = (unsigned long *)ctx->arg;
 
 	/* demultiplex the socketcall */
 	switch (ctx->nr) {
@@ -633,7 +628,6 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 			/* not successful; optimized branch */
 			if (unlikely((long)ctx->ret < 0))
 				return;
-
 			/*
 			 * PF_INET and PF_INET6 descriptors are
 			 * considered interesting
