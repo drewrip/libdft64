@@ -53,7 +53,11 @@
 #include "ins_helper.h"
 #include "tagmap.h"
 
-#define WORD_LEN	4	/* size in bytes of a word value */
+#define QUAD_LEN    8
+#define DOUBLE_LEN  4
+#define WORD_LEN	2	/* size in bytes of a word value */
+#define BYTE_LEN    1
+
 #define SYS_SOCKET	1	/* socket(2) demux index for socketcall */
 
 /* default path for the log file (audit) */
@@ -65,13 +69,13 @@
 
 
 /* thread context */
-static REG thread_ctx_ptr;
+extern REG thread_ctx_ptr;
 
 /* ins descriptors */
-static ins_desc_t ins_desc[XED_ICLASS_LAST];
+extern ins_desc_t ins_desc[XED_ICLASS_LAST];
 
 /* syscall descriptors */
-static syscall_desc_t syscall_desc[SYSCALL_MAX];
+extern syscall_desc_t syscall_desc[SYSCALL_MAX];
 
 /* socket related syscalls */
 static int sock_syscalls[] = {
@@ -122,6 +126,7 @@ static KNOB<size_t> net(KNOB_MODE_WRITEONCE, "pintool", "n", "1", "");
 static void PIN_FAST_ANALYSIS_CALL
 alert(ADDRINT ins, ADDRINT bt)
 {
+    printf("alert!\n");
 	/* log file */
 	FILE *logfile;
 
@@ -151,6 +156,26 @@ alert(ADDRINT ins, ADDRINT bt)
 }
 
 /*
+ * 64-bit register assertion (taint-sink, DFT-sink)
+ *
+ * called before an instruction that uses a register
+ * for an indirect branch; returns a positive value
+ * whenever the register value or the target address
+ * are tainted
+ *
+ * returns:	0 (clean), >0 (tainted)
+ */
+static ADDRINT PIN_FAST_ANALYSIS_CALL
+assert_reg64(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
+{
+	/* 
+	 * combine the register tag along with the tag
+	 * markings of the target address
+	 */
+	return tag_combine(thread_ctx->vcpu.gpr[reg][0], tagmap_getn(addr, 8));
+}
+
+/*
  * 32-bit register assertion (taint-sink, DFT-sink)
  *
  * called before an instruction that uses a register
@@ -161,13 +186,13 @@ alert(ADDRINT ins, ADDRINT bt)
  * returns:	0 (clean), >0 (tainted)
  */
 static ADDRINT PIN_FAST_ANALYSIS_CALL
-assert_reg32(thread_ctx_t *thread_ctx, uint32_t reg, uint32_t addr)
+assert_reg32(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
 {
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(thread_ctx->vcpu.gpr[reg][0], tagmap_getl(addr));
+	return tag_combine(thread_ctx->vcpu.gpr[reg][0] & VCPU_MASK32, tagmap_getl(addr));
 }
 
 /*
@@ -181,13 +206,49 @@ assert_reg32(thread_ctx_t *thread_ctx, uint32_t reg, uint32_t addr)
  * returns:	0 (clean), >0 (tainted)
  */
 static ADDRINT PIN_FAST_ANALYSIS_CALL
-assert_reg16(thread_ctx_t *thread_ctx, uint32_t reg, uint32_t addr)
+assert_reg16(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
 {
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
 	return tag_combine(thread_ctx->vcpu.gpr[reg][0] & VCPU_MASK16, tagmap_getw(addr));
+}
+
+/*
+ * 8-bit register assertion (taint-sink, DFT-sink)
+ *
+ * called before an instruction that uses a register
+ * for an indirect branch; returns a positive value
+ * whenever the register value or the target address
+ * are tainted
+ *
+ * returns:	0 (clean), >0 (tainted)
+ */
+static ADDRINT PIN_FAST_ANALYSIS_CALL
+assert_reg8(thread_ctx_t *thread_ctx, ADDRINT reg, ADDRINT addr)
+{
+	/* 
+	 * combine the register tag along with the tag
+	 * markings of the target address
+	 */
+	return tag_combine(thread_ctx->vcpu.gpr[reg][0] & VCPU_MASK8, tagmap_getw(addr));
+}
+
+/*
+ * 64-bit memory assertion (taint-sink, DFT-sink)
+ *
+ * called before an instruction that uses a memory
+ * location for an indirect branch; returns a positive
+ * value whenever the memory value (i.e., effective address),
+ * or the target address, are tainted
+ *
+ * returns:	0 (clean), >0 (tainted)
+ */
+static ADDRINT PIN_FAST_ANALYSIS_CALL
+assert_mem64(ADDRINT paddr, ADDRINT taddr)
+{
+	return tagmap_getn(paddr, 8) | tagmap_getn(taddr, 8);
 }
 
 /*
@@ -223,6 +284,22 @@ assert_mem16(ADDRINT paddr, ADDRINT taddr)
 }
 
 /*
+ * 8-bit memory assertion (taint-sink, DFT-sink)
+ *
+ * called before an instruction that uses a memory
+ * location for an indirect branch; returns a positive
+ * value whenever the memory value (i.e., effective address),
+ * or the target address, are tainted
+ *
+ * returns:	0 (clean), >0 (tainted)
+ */
+static ADDRINT PIN_FAST_ANALYSIS_CALL
+assert_mem8(ADDRINT paddr, ADDRINT taddr)
+{
+	return tagmap_getb(paddr) | tagmap_getb(taddr);
+}
+
+/*
  * instrument the jmp/call instructions
  *
  * install the appropriate DTA/DFT logic (sinks)
@@ -232,6 +309,7 @@ assert_mem16(ADDRINT paddr, ADDRINT taddr)
 static void
 dta_instrument_jmp_call(INS ins)
 {
+    printf("instrument jmp call!\n");
 	/* temporaries */
 	REG reg;
 
@@ -248,9 +326,22 @@ dta_instrument_jmp_call(INS ins)
 			reg = INS_OperandReg(ins, 0);
 
 			/* size analysis */
-
+ 			/* 64-bit register */           
+            if (REG_is_gr64(reg))
+				/*
+				 * instrument assert_reg64() before branch;
+				 * conditional instrumentation -- if
+				 */
+				INS_InsertIfCall(ins,
+					IPOINT_BEFORE,
+					(AFUNPTR)assert_reg64,
+					IARG_FAST_ANALYSIS_CALL,
+					IARG_REG_VALUE, thread_ctx_ptr,
+					IARG_UINT32, REG_INDX(reg),
+					IARG_REG_VALUE, reg,
+					IARG_END);
 			/* 32-bit register */
-			if (REG_is_gr32(reg))
+            else if (REG_is_gr32(reg))
 				/*
 				 * instrument assert_reg32() before branch;
 				 * conditional instrumentation -- if
@@ -263,8 +354,8 @@ dta_instrument_jmp_call(INS ins)
 					IARG_UINT32, REG_INDX(reg),
 					IARG_REG_VALUE, reg,
 					IARG_END);
-			else
-				/* 16-bit register */
+			/* 16-bit register */
+			else if (REG_is_gr16(reg))
 				/*
 				 * instrument assert_reg16() before branch;
 				 * conditional instrumentation -- if
@@ -277,13 +368,40 @@ dta_instrument_jmp_call(INS ins)
 					IARG_UINT32, REG_INDX(reg),
 					IARG_REG_VALUE, reg,
 					IARG_END);
+			/* 8-bit register */
+            else
+				/*
+				 * instrument assert_reg8() before branch;
+				 * conditional instrumentation -- if
+				 */
+				INS_InsertIfCall(ins,
+					IPOINT_BEFORE,
+					(AFUNPTR)assert_reg8,
+					IARG_FAST_ANALYSIS_CALL,
+					IARG_REG_VALUE, thread_ctx_ptr,
+					IARG_UINT32, REG_INDX(reg),
+					IARG_REG_VALUE, reg,
+					IARG_END);
 		}
 		else {
 		/* call via memory */
 			/* size analysis */
-				
+            
+            /* 64-bit */
+			if (INS_MemoryReadSize(ins) == QUAD_LEN)
+				/*
+				 * instrument assert_mem64() before branch;
+				 * conditional instrumentation -- if
+				 */
+				INS_InsertIfCall(ins,
+					IPOINT_BEFORE,
+					(AFUNPTR)assert_mem64,
+					IARG_FAST_ANALYSIS_CALL,
+					IARG_MEMORYREAD_EA,
+					IARG_BRANCH_TARGET_ADDR,
+					IARG_END);
 			/* 32-bit */
-			if (INS_MemoryReadSize(ins) == WORD_LEN)
+            else if (INS_MemoryReadSize(ins) == DOUBLE_LEN)
 				/*
 				 * instrument assert_mem32() before branch;
 				 * conditional instrumentation -- if
@@ -296,7 +414,7 @@ dta_instrument_jmp_call(INS ins)
 					IARG_BRANCH_TARGET_ADDR,
 					IARG_END);
 			/* 16-bit */
-			else
+			else if (INS_MemoryReadSize(ins) == WORD_LEN)
 				/*
 				 * instrument assert_mem16() before branch;
 				 * conditional instrumentation -- if
@@ -304,6 +422,19 @@ dta_instrument_jmp_call(INS ins)
 				INS_InsertIfCall(ins,
 					IPOINT_BEFORE,
 					(AFUNPTR)assert_mem16,
+					IARG_FAST_ANALYSIS_CALL,
+					IARG_MEMORYREAD_EA,
+					IARG_BRANCH_TARGET_ADDR,
+					IARG_END);
+			/* 8-bit */
+			else
+				/*
+				 * instrument assert_mem8() before branch;
+				 * conditional instrumentation -- if
+				 */
+				INS_InsertIfCall(ins,
+					IPOINT_BEFORE,
+					(AFUNPTR)assert_mem8,
 					IARG_FAST_ANALYSIS_CALL,
 					IARG_MEMORYREAD_EA,
 					IARG_BRANCH_TARGET_ADDR,
@@ -333,10 +464,22 @@ dta_instrument_jmp_call(INS ins)
 static void
 dta_instrument_ret(INS ins)
 {
+    printf("instrument ret\n");
 	/* size analysis */
-				
+    if (INS_MemoryReadSize(ins) == QUAD_LEN)
+		/*
+		 * instrument assert_mem32() before ret;
+		 * conditional instrumentation -- if
+		 */
+		INS_InsertIfCall(ins,
+			IPOINT_BEFORE,
+			(AFUNPTR)assert_mem64,
+			IARG_FAST_ANALYSIS_CALL,
+			IARG_MEMORYREAD_EA,
+			IARG_BRANCH_TARGET_ADDR,
+			IARG_END);
 	/* 32-bit */
-	if (INS_MemoryReadSize(ins) == WORD_LEN)
+    else if (INS_MemoryReadSize(ins) == DOUBLE_LEN)
 		/*
 		 * instrument assert_mem32() before ret;
 		 * conditional instrumentation -- if
@@ -349,7 +492,7 @@ dta_instrument_ret(INS ins)
 			IARG_BRANCH_TARGET_ADDR,
 			IARG_END);
 	/* 16-bit */
-	else
+    else if (INS_MemoryReadSize(ins) == WORD_LEN)
 		/*
 		 * instrument assert_mem16() before ret;
 		 * conditional instrumentation -- if
@@ -357,6 +500,19 @@ dta_instrument_ret(INS ins)
 		INS_InsertIfCall(ins,
 			IPOINT_BEFORE,
 			(AFUNPTR)assert_mem16,
+			IARG_FAST_ANALYSIS_CALL,
+			IARG_MEMORYREAD_EA,
+			IARG_BRANCH_TARGET_ADDR,
+			IARG_END);
+	/* 8-bit */
+	else
+		/*
+		 * instrument assert_mem16() before ret;
+		 * conditional instrumentation -- if
+		 */
+		INS_InsertIfCall(ins,
+			IPOINT_BEFORE,
+			(AFUNPTR)assert_mem8,
 			IARG_FAST_ANALYSIS_CALL,
 			IARG_MEMORYREAD_EA,
 			IARG_BRANCH_TARGET_ADDR,
