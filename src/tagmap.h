@@ -37,55 +37,30 @@
 #include "tag_traits.h"
 #include <utility>
 
-/*
- * the bitmap size in bytes
- */
-#define PAGE_SIZE 4096
-#define PAGE_BITS 12
-#define TOP_DIR_SZ 0x800000
-#define PAGETABLE_SZ 0X1000
-#define PAGETABLE_BITS 24
-#define OFFSET_MASK 0x00000FFFU
-#define PAGETABLE_OFFSET_MASK 0x00FFFFFFU
-
-#define VIRT2PAGETABLE(addr) ((addr) >> PAGETABLE_BITS)
-#define VIRT2PAGETABLE_OFFSET(addr)                                            \
-  (((addr)&PAGETABLE_OFFSET_MASK) >> PAGE_BITS)
-
-#define VIRT2PAGE(addr) VIRT2PAGETABLE_OFFSET(addr)
-#define VIRT2OFFSET(addr) ((addr)&OFFSET_MASK)
-
-#define ALIGN_OFF_MAX 8 /* max alignment offset */
-#define ASSERT_FAST 32  /* used in comparisons  */
-
 extern void libdft_die();
 
-/* XXX: Latest Intel Pin(3.7) does not support std::array :( */
-// typedef std::array<tag_t, PAGE_SIZE> tag_page_t;
-// typedef std::array<tag_page_t*, PAGETABLE_SZ> tag_table_t;
-// typedef std::array<tag_table_t*, TOP_DIR_SZ> tag_dir_t;
-/* For file taint */
-typedef struct {
-  tag_t tag[PAGE_SIZE];
-} tag_page_t;
-typedef struct {
-  tag_page_t *page[PAGETABLE_SZ];
-} tag_table_t;
-typedef struct {
-  tag_table_t *table[TOP_DIR_SZ];
-} tag_dir_t;
 
 void tagmap_setb(ADDRINT addr, tag_t const &tag);
+void tagmap_setw(ADDRINT addr, tag_t const &tag);
+void tagmap_setl(ADDRINT addr, tag_t const &tag);
+void tagmap_setq(ADDRINT addr, tag_t const &tag);
+void tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag);
+
 void tagmap_setb_reg(THREADID tid, unsigned int reg_idx, unsigned int off,
                      tag_t const &tag);
+
 tag_t tagmap_getb(ADDRINT addr);
 tag_t tagmap_getb_reg(THREADID tid, unsigned int reg_idx, unsigned int off);
 tag_t tagmap_getw(ADDRINT addr);
 tag_t tagmap_getl(ADDRINT addr);
+tag_t tagmap_getq(ADDRINT addr);
 tag_t tagmap_getn(ADDRINT addr, unsigned int size);
 tag_t tagmap_getn_reg(THREADID tid, unsigned int reg_idx, unsigned int n);
+
 void tagmap_clrb(ADDRINT addr);
+void tagmap_clrw(ADDRINT addr);
+void tagmap_clrl(ADDRINT addr);
+void tagmap_clrq(ADDRINT addr);
 void tagmap_clrn(ADDRINT, UINT32);
-void tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag);
 
 #endif /* __TAGMAP_H__ */

@@ -538,12 +538,14 @@ post_read_hook(THREADID tid, syscall_ctx_t *ctx)
                 return;
 	
 	/* taint-source */
-	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end())
+	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end()){
+            printf("tool: in post_read_hook, calling tagmap_setn()\n");
         	/* set the tag markings */
 	        tagmap_setn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret, dta_tag);
-	else
+    } else {
         	/* clear the tag markings */
 	        tagmap_clrn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret);
+    }
 }
 
 /*
@@ -580,16 +582,18 @@ post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
 			(size_t)iov->iov_len : tot;
 	
 		/* taint interesting data and zero everything else */	
-		if (it != fdset.end())
-                	/* set the tag markings */
-                	tagmap_setn((size_t)iov->iov_base, iov_tot, dta_tag);
-		else
-                	/* clear the tag markings */
-                	tagmap_clrn((size_t)iov->iov_base, iov_tot);
+		if (it != fdset.end()){
+                /* set the tag markings */
+                printf("tool: in post_readv_hook, calling tagmap_setn()\n");
+                tagmap_setn((size_t)iov->iov_base, iov_tot, dta_tag);
+        } else {
+                /* clear the tag markings */
+                tagmap_clrn((size_t)iov->iov_base, iov_tot);
 
                 /* housekeeping */
                 tot -= iov_tot;
         }
+    }
 }
 
 /*
@@ -684,11 +688,13 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 				return;
 	
 			/* taint-source */	
-			if (fdset.find((int)args[SYSCALL_ARG0]) != fdset.end())
+			if (fdset.find((int)args[SYSCALL_ARG0]) != fdset.end()){
+                printf("tool: in socketcall_hook (__NR_recvfrom), calling tagmap_setn()\n");
 				/* set the tag markings */
 				tagmap_setn(args[SYSCALL_ARG1],
 						(size_t)ctx->ret,
 						dta_tag);
+            }
 			else
 				/* clear the tag markings */
 				tagmap_clrn(args[SYSCALL_ARG1],
@@ -741,12 +747,13 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 			/* ancillary data specified */
 			if (msg->msg_control != NULL) {
 				/* taint-source */
-				if (it != fdset.end())
+				if (it != fdset.end()){
+                    printf("tool: in socketcall_hook (__NR_recvmsg A), calling tagmap_setn()\n");
 					/* set the tag markings */
 					tagmap_setn((size_t)msg->msg_control,
 						msg->msg_controllen,
 						dta_tag);
-					
+                }	
 				else
 					/* clear the tag markings */
 					tagmap_clrn((size_t)msg->msg_control,
@@ -773,11 +780,13 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 						(size_t)iov->iov_len : tot;
 				
 				/* taint-source */	
-				if (it != fdset.end())
+				if (it != fdset.end()){
+                    printf("tool: in socketcall_hook (__NR_recvmsg B), calling tagmap_setn()\n");
 					/* set the tag markings */
 					tagmap_setn((size_t)iov->iov_base,
 								iov_tot,
 								dta_tag);
+                }
 				else
 					/* clear the tag markings */
 					tagmap_clrn((size_t)iov->iov_base,

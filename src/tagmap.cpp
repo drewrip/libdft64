@@ -42,122 +42,110 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unordered_map>
 
-tag_dir_t tag_dir;
 extern thread_ctx_t *threads_ctx;
 
-inline void tag_dir_setb(tag_dir_t &dir, ADDRINT addr, tag_t const &tag) {
-  if (addr > 0x7fffffffffff) {
-    return;
-  }
-  // LOG("Setting tag "+hexstr(addr)+"\n");
-  if (dir.table[VIRT2PAGETABLE(addr)] == NULL) {
-    //  LOG("No tag table for "+hexstr(addr)+" allocating new table\n");
-#ifndef _WIN32
-    tag_table_t *new_table = new (std::nothrow) tag_table_t();
-#else // _WIN32
-    tag_table_t *new_table = new tag_table_t();
-#endif
-    if (new_table == NULL) {
-      LOG("Failed to allocate tag table!\n");
-      libdft_die();
-    }
-    dir.table[VIRT2PAGETABLE(addr)] = new_table;
-  }
-
-  tag_table_t *table = dir.table[VIRT2PAGETABLE(addr)];
-  if ((*table).page[VIRT2PAGE(addr)] == NULL) {
-    //    LOG("No tag page for "+hexstr(addr)+" allocating new page\n");
-#ifndef _WIN32
-    tag_page_t *new_page = new (std::nothrow) tag_page_t();
-#else // _WIN32
-    tag_page_t *new_page = new tag_page_t();
-#endif
-    if (new_page == NULL) {
-      LOG("Failed to allocate tag page!\n");
-      libdft_die();
-    }
-    std::fill(new_page->tag, new_page->tag + PAGE_SIZE,
-              tag_traits<tag_t>::cleared_val);
-    (*table).page[VIRT2PAGE(addr)] = new_page;
-  }
-
-  tag_page_t *page = (*table).page[VIRT2PAGE(addr)];
-  (*page).tag[VIRT2OFFSET(addr)] = tag;
-  /*
-  if (!tag_is_empty(tag)) {
-    LOGD("[!]Writing tag for %p \n", (void *)addr);
-  }
-  */
-}
-
-inline tag_t const *tag_dir_getb_as_ptr(tag_dir_t const &dir, ADDRINT addr) {
-  if (addr > 0x7fffffffffff) {
-    return NULL;
-  }
-  if (dir.table[VIRT2PAGETABLE(addr)]) {
-    tag_table_t *table = dir.table[VIRT2PAGETABLE(addr)];
-    if ((*table).page[VIRT2PAGE(addr)]) {
-      tag_page_t *page = (*table).page[VIRT2PAGE(addr)];
-      if (page != NULL)
-        return &(*page).tag[VIRT2OFFSET(addr)];
-    }
-  }
-  return &tag_traits<tag_t>::cleared_val;
-}
+std::unordered_map<uint8_t, tag_t> value_map8;
+std::unordered_map<uint16_t, tag_t> value_map16;
+std::unordered_map<uint32_t, tag_t> value_map32;
+std::unordered_map<uint64_t, tag_t> value_map64;
 
 // PIN_FAST_ANALYSIS_CALL
 void tagmap_setb(ADDRINT addr, tag_t const &tag) {
-  tag_dir_setb(tag_dir, addr, tag);
+    printf("tagmap_setb(): addr=%lx, value=%d\n", addr, *(uint8_t*)Addrint2VoidStar(addr));
+    value_map8[*(uint8_t*)Addrint2VoidStar(addr)] = tag; // Running out of shared memory!
+    printf("finished tagmap_setb: size=%zu\n", value_map8.size());
+}
+
+void tagmap_setw(ADDRINT addr, tag_t const &tag) {
+    printf("tagmap_setw()\n");
+    value_map16[*(uint16_t*)Addrint2VoidStar(addr)] = tag;
+}
+
+void tagmap_setl(ADDRINT addr, tag_t const &tag) {
+    printf("tagmap_setl()\n");
+    value_map32[*(uint32_t*)Addrint2VoidStar(addr)] = tag;
+}
+
+void tagmap_setq(ADDRINT addr, tag_t const &tag) {
+    printf("tagmap_setq()\n");
+    value_map64[*(uint64_t*)Addrint2VoidStar(addr)] = tag;
+}
+
+void PIN_FAST_ANALYSIS_CALL tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag) {
+    printf("tagmap_setn()\n");
+    switch(n){
+    case 1:
+        tagmap_setb(addr, tag);
+        break;
+    case 2:
+        tagmap_setw(addr, tag);
+        break;
+    case 4:
+        tagmap_setl(addr, tag);
+        break;
+    case 8:
+        tagmap_setq(addr, tag);
+        break;
+    default:
+        ADDRINT i;
+        for (i = addr; i < addr + n; i++) {
+            tagmap_setb(i, tag);
+        }
+    }
 }
 
 void tagmap_setb_reg(THREADID tid, unsigned int reg_idx, unsigned int off,
                      tag_t const &tag) {
-  threads_ctx[tid].vcpu.gpr[reg_idx][off] = tag;
+    printf("tagmap_setb_reg()\n");
+    threads_ctx[tid].vcpu.gpr[reg_idx][off] = tag;
 }
 
-tag_t tagmap_getb(ADDRINT addr) { return *tag_dir_getb_as_ptr(tag_dir, addr); }
+tag_t tagmap_getb(ADDRINT addr) { return value_map8[*(uint8_t*)Addrint2VoidStar(addr)]; }
+
+tag_t tagmap_getw(ADDRINT addr) { return value_map16[*(uint16_t*)Addrint2VoidStar(addr)]; }
+
+tag_t tagmap_getl(ADDRINT addr) { return value_map32[*(uint32_t*)Addrint2VoidStar(addr)]; }
+
+tag_t tagmap_getq(ADDRINT addr) { return value_map64[*(uint64_t*)Addrint2VoidStar(addr)]; }
 
 tag_t tagmap_getb_reg(THREADID tid, unsigned int reg_idx, unsigned int off) {
+    printf("tagmap_getb_reg()\n");
   return threads_ctx[tid].vcpu.gpr[reg_idx][off];
 }
 
-tag_t tagmap_getw(ADDRINT addr) { return tagmap_getn(addr, sizeof(uint16_t)); }
-
-tag_t tagmap_getl(ADDRINT addr) { return tagmap_getn(addr, sizeof(uint32_t)); }
-
-void PIN_FAST_ANALYSIS_CALL tagmap_clrb(ADDRINT addr) {
-  tagmap_setb(addr, tag_traits<tag_t>::cleared_val);
-}
-
-void PIN_FAST_ANALYSIS_CALL tagmap_clrn(ADDRINT addr, UINT32 n) {
-  ADDRINT i;
-  for (i = addr; i < addr + n; i++) {
-    tagmap_clrb(i);
-  }
-}
-
-void PIN_FAST_ANALYSIS_CALL tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag) {
-  ADDRINT i;
-  for (i = addr; i < addr + n; i++) {
-    tagmap_setb(i, tag);
-  }
-}
-
 tag_t tagmap_getn(ADDRINT addr, unsigned int n) {
-  tag_t ts = tag_traits<tag_t>::cleared_val;
-  for (size_t i = 0; i < n; i++) {
-    const tag_t t = tagmap_getb(addr + i);
-    if (tag_is_empty(t))
-      continue;
-    // LOGD("[tagmap_getn] %lu, ts: %d, %s\n", i, ts, tag_sprint(t).c_str());
-    ts = tag_combine(ts, t);
-    // LOGD("t: %d, ts:%d\n", t, ts);
-  }
-  return ts;
+    printf("tagmap_getn: address=%zu, n=%u\n", addr, n);
+    switch(n){
+    case 1:
+        return tagmap_getb(addr);
+        break;
+    case 2:
+        return tagmap_getw(addr);
+        break;
+    case 4:
+        return tagmap_getl(addr);
+        break;
+    case 8:
+        return tagmap_getq(addr);
+        break;
+    default:
+        tag_t ts = tag_traits<tag_t>::cleared_val;
+        for (size_t i = 0; i < n; i++) {
+            const tag_t t = tagmap_getb(addr + i);
+            if (tag_is_empty(t))
+                continue;
+            // LOGD("[tagmap_getn] %lu, ts: %d, %s\n", i, ts, tag_sprint(t).c_str());
+            ts = tag_combine(ts, t);
+            // LOGD("t: %d, ts:%d\n", t, ts);
+        }
+        return ts;
+    }
 }
 
 tag_t tagmap_getn_reg(THREADID tid, unsigned int reg_idx, unsigned int n) {
+    printf("tagmap_getn_reg()\n");
   tag_t ts = tag_traits<tag_t>::cleared_val;
   for (size_t i = 0; i < n; i++) {
     const tag_t t = tagmap_getb_reg(tid, reg_idx, i);
@@ -168,4 +156,46 @@ tag_t tagmap_getn_reg(THREADID tid, unsigned int reg_idx, unsigned int n) {
     // LOGD("t: %d, ts:%d\n", t, ts);
   }
   return ts;
+}
+
+void PIN_FAST_ANALYSIS_CALL tagmap_clrb(ADDRINT addr) {
+    value_map8.erase(*(uint8_t*)Addrint2VoidStar(addr));
+}
+
+void PIN_FAST_ANALYSIS_CALL tagmap_clrw(ADDRINT addr) {
+    printf("tagmap_clrw()\n");
+    value_map16.erase(*(uint16_t*)Addrint2VoidStar(addr));
+}
+
+void PIN_FAST_ANALYSIS_CALL tagmap_clrl(ADDRINT addr) {
+    printf("tagmap_clrl()\n");
+    value_map32.erase(*(uint32_t*)Addrint2VoidStar(addr));
+}
+
+void PIN_FAST_ANALYSIS_CALL tagmap_clrq(ADDRINT addr) {
+    printf("tagmap_clrq()\n");
+    value_map64.erase(*(uint64_t*)Addrint2VoidStar(addr));
+}
+
+void PIN_FAST_ANALYSIS_CALL tagmap_clrn(ADDRINT addr, UINT32 n) {
+    printf("tagmap_clrn()\n");
+    switch(n){
+    case 1:
+        tagmap_clrb(addr);
+        break;
+    case 2:
+        tagmap_clrw(addr);
+        break;
+    case 4:
+        tagmap_clrl(addr);
+        break;
+    case 8:
+        tagmap_clrq(addr);
+        break;
+    default:
+        ADDRINT i;
+        for (i = addr; i < addr + n; i++) {
+            tagmap_clrb(i);
+        }
+    }
 }
