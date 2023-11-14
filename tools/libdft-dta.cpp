@@ -249,6 +249,7 @@ assert_reg8(ADDRINT reg, ADDRINT addr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem64(ADDRINT paddr, ADDRINT taddr)
 {
+    //printf("assert_mem64: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getn(paddr, 8) | tagmap_getn(taddr, 8));
 	return tagmap_getn(paddr, 8) | tagmap_getn(taddr, 8);
 }
 
@@ -265,6 +266,7 @@ assert_mem64(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem32(ADDRINT paddr, ADDRINT taddr)
 {
+    //printf("assert_mem32: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getl(paddr) | tagmap_getl(taddr));
 	return tagmap_getl(paddr) | tagmap_getl(taddr);
 }
 
@@ -281,6 +283,7 @@ assert_mem32(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem16(ADDRINT paddr, ADDRINT taddr)
 {
+    //printf("assert_mem16: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getw(paddr) | tagmap_getw(taddr));
 	return tagmap_getw(paddr) | tagmap_getw(taddr);
 }
 
@@ -297,6 +300,7 @@ assert_mem16(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem8(ADDRINT paddr, ADDRINT taddr)
 {
+    //printf("assert_mem8: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getb(paddr) | tagmap_getb(taddr));
 	return tagmap_getb(paddr) | tagmap_getb(taddr);
 }
 
@@ -310,6 +314,7 @@ assert_mem8(ADDRINT paddr, ADDRINT taddr)
 static void
 dta_instrument_jmp_call(INS ins)
 {
+    printf("dta_instrument_jmp_call\n");
 	/* temporaries */
 	REG reg;
 
@@ -319,9 +324,10 @@ dta_instrument_jmp_call(INS ins)
 	 */
 	if (unlikely(INS_IsIndirectBranchOrCall(ins))) {
 		/* perform operand analysis */
-
+        printf("inside unlikely branch\n");
 		/* call via register */
 		if (INS_OperandIsReg(ins, 0)) {
+            printf("call via register\n");
 			/* extract the register from the instruction */
 			reg = INS_OperandReg(ins, 0);
 
@@ -380,6 +386,7 @@ dta_instrument_jmp_call(INS ins)
 					IARG_END);
 		}
 		else {
+            printf("call via memory\n");
 		/* call via memory */
 			/* size analysis */
             
@@ -436,6 +443,7 @@ dta_instrument_jmp_call(INS ins)
 					IARG_BRANCH_TARGET_ADDR,
 					IARG_END);
 		}
+        printf("adding alert\n");
 		/*
 		 * instrument alert() before branch;
 		 * conditional instrumentation -- then
@@ -460,7 +468,7 @@ dta_instrument_jmp_call(INS ins)
 static void
 dta_instrument_ret(INS ins)
 {
-
+    printf("dta_instrument_ret\n");
 	/* size analysis */
     if (INS_MemoryReadSize(ins) == QUAD_LEN)
 		/*
@@ -527,26 +535,6 @@ dta_instrument_ret(INS ins)
 		IARG_END);
 }
 
-/*
- * read(2) handler (taint-source)
- */
-static void
-post_read_hook(THREADID tid, syscall_ctx_t *ctx)
-{
-    /* read() was not successful; optimized branch */
-    if (unlikely((long)ctx->ret <= 0))
-                return;
-	
-	/* taint-source */
-	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end()){
-            printf("tool: in post_read_hook, calling tagmap_setn()\n");
-        	/* set the tag markings */
-	        tagmap_setn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret, dta_tag);
-    } else {
-        	/* clear the tag markings */
-	        tagmap_clrn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret);
-    }
-}
 
 /*
  * readv(2) handler (taint-source)
@@ -554,6 +542,7 @@ post_read_hook(THREADID tid, syscall_ctx_t *ctx)
 static void
 post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
 {
+    printf("libdft-dta: post_readv_hook\n");
 	/* iterators */
 	int i;
 	struct iovec *iov;
@@ -584,7 +573,6 @@ post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
 		/* taint interesting data and zero everything else */	
 		if (it != fdset.end()){
                 /* set the tag markings */
-                printf("tool: in post_readv_hook, calling tagmap_setn()\n");
                 tagmap_setn((size_t)iov->iov_base, iov_tot, dta_tag);
         } else {
                 /* clear the tag markings */
@@ -593,6 +581,27 @@ post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
                 /* housekeeping */
                 tot -= iov_tot;
         }
+    }
+}
+
+/*
+ * read(2) handler (taint-source)
+ */
+static void
+post_read_hook(THREADID tid, syscall_ctx_t *ctx)
+{
+    printf("libdft-dta: post_read_hook\n");
+    /* read() was not successful; optimized branch */
+    if (unlikely((long)ctx->ret <= 0))
+                return;
+	
+	/* taint-source */
+	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end()){
+        	/* set the tag markings */
+	        tagmap_setn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret, dta_tag);
+    } else {
+        	/* clear the tag markings */
+	        tagmap_clrn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret);
     }
 }
 
@@ -610,6 +619,7 @@ post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
 static void
 post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 {
+    printf("socketcall_hook\n");
 	/* message header; recvmsg(2) */
 	struct msghdr *msg;
 
@@ -669,7 +679,6 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 				/* clear the tag bits */
 				tagmap_clrn(args[SYSCALL_ARG1],
 					*((int *)args[SYSCALL_ARG2]));
-				
 				/* clear the tag bits */
 				tagmap_clrn(args[SYSCALL_ARG2], sizeof(int));
 			}
@@ -678,7 +687,7 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 			/* not successful; optimized branch */
 			if (unlikely((long)ctx->ret < 0))
 				return;
-	
+
 			/* clear the tag bits */
 			tagmap_clrn(args[SYSCALL_ARG3], (sizeof(int) * 2));
 			break;
@@ -689,23 +698,21 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 	
 			/* taint-source */	
 			if (fdset.find((int)args[SYSCALL_ARG0]) != fdset.end()){
-                printf("tool: in socketcall_hook (__NR_recvfrom), calling tagmap_setn()\n");
 				/* set the tag markings */
 				tagmap_setn(args[SYSCALL_ARG1],
 						(size_t)ctx->ret,
 						dta_tag);
-            }
-			else
+            } else {
 				/* clear the tag markings */
 				tagmap_clrn(args[SYSCALL_ARG1],
 						(size_t)ctx->ret);
+            }
 
 			/* sockaddr argument is specified */
 			if ((void *)args[SYSCALL_ARG4] != NULL) {
 				/* clear the tag bits */
 				tagmap_clrn(args[SYSCALL_ARG4],
 					*((int *)args[SYSCALL_ARG5]));
-				
 				/* clear the tag bits */
 				tagmap_clrn(args[SYSCALL_ARG5], sizeof(int));
 			}
@@ -714,11 +721,10 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 			/* not successful; optimized branch */
 			if (unlikely((long)ctx->ret < 0))
 				return;
-	
+
 			/* clear the tag bits */
 			tagmap_clrn(args[SYSCALL_ARG3],
 					*((int *)args[SYSCALL_ARG4]));
-			
 			/* clear the tag bits */
 			tagmap_clrn(args[SYSCALL_ARG4], sizeof(int));
 			break;
@@ -738,7 +744,7 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 				/* clear the tag bits */
 				tagmap_clrn((size_t)msg->msg_name,
 					msg->msg_namelen);
-				
+	            
 				/* clear the tag bits */
 				tagmap_clrn((size_t)&msg->msg_namelen,
 						sizeof(int));
@@ -748,22 +754,20 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 			if (msg->msg_control != NULL) {
 				/* taint-source */
 				if (it != fdset.end()){
-                    printf("tool: in socketcall_hook (__NR_recvmsg A), calling tagmap_setn()\n");
 					/* set the tag markings */
 					tagmap_setn((size_t)msg->msg_control,
 						msg->msg_controllen,
 						dta_tag);
-                }	
-				else
+                } else {
 					/* clear the tag markings */
 					tagmap_clrn((size_t)msg->msg_control,
 						msg->msg_controllen);
-					
+                }
 				/* clear the tag bits */
 				tagmap_clrn((size_t)&msg->msg_controllen,
 						sizeof(int));
 			}
-			
+		    
 			/* flags; clear the tag bits */
 			tagmap_clrn((size_t)&msg->msg_flags, sizeof(int));	
 			
@@ -781,16 +785,15 @@ post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 				
 				/* taint-source */	
 				if (it != fdset.end()){
-                    printf("tool: in socketcall_hook (__NR_recvmsg B), calling tagmap_setn()\n");
 					/* set the tag markings */
 					tagmap_setn((size_t)iov->iov_base,
 								iov_tot,
 								dta_tag);
-                }
-				else
+                } else {
 					/* clear the tag markings */
 					tagmap_clrn((size_t)iov->iov_base,
 								iov_tot);
+                }
 		
 				/* housekeeping */
 				tot -= iov_tot;

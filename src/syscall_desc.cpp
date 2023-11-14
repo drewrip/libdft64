@@ -552,7 +552,7 @@ syscall_desc_t syscall_desc[SYSCALL_MAX] = {
     /* __NR_clock_settime = 227 */
     {2, 0, 0, {0, 0, 0, 0, 0, 0}, NULL, NULL},
     /* __NR_clock_gettime = 228 */
-    {2, 0, 1, {0, sizeof(struct timespec), 0, 0, 0, 0}, NULL, NULL},
+    {2, 0, 1, {0,sizeof(struct timespec), 0, 0, 0, 0}, NULL, NULL},
     /* __NR_clock_getres = 229 */
     {2, 0, 1, {0, sizeof(struct timespec), 0, 0, 0, 0}, NULL, NULL},
     /* __NR_clock_nanosleep = 230 */
@@ -907,26 +907,6 @@ static void post_readlinkat_hook(THREADID tid, syscall_ctx_t *ctx) {
 
 /* __NR_mmap post syscall hook */
 static void post_mmap_hook(THREADID tid, syscall_ctx_t *ctx) {
-  /* the map offset */
-  size_t offset = (size_t)ctx->arg[SYSCALL_ARG1];
-
-  /* mmap() was not successful; optimized branch */
-  if (unlikely((void *)ctx->ret == MAP_FAILED))
-    return;
-
-  /* estimate offset; optimized branch */
-  if (unlikely(offset < PAGE_SZ))
-    offset = PAGE_SZ;
-  else
-    offset = offset + PAGE_SZ - (offset % PAGE_SZ);
-
-  /* grow downwards; optimized branch */
-  if (unlikely((int)ctx->arg[SYSCALL_ARG3] & MAP_GROWSDOWN))
-    /* fix starting address */
-    ctx->ret = ctx->ret - offset;
-
-  /* emulate the clear_tag() call */
-  tagmap_clrn((size_t)ctx->ret, offset);
 }
 
 /* __NR_readv and __NR_preadv post syscall hook */

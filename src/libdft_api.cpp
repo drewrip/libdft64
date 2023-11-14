@@ -38,7 +38,6 @@
 #include "syscall_hook.h"
 
 
-
 /* threads context counter */
 static size_t tctx_ct = 0;
 /* threads context */
@@ -253,7 +252,7 @@ static void sysexit_save(THREADID tid, CONTEXT *ctx, SYSCALL_STANDARD std,
         /* analyze each argument */
         if (unlikely(syscall_desc[syscall_nr].map_args[i] > 0))
           /* sanity check -- probably non needed */
-          if (likely((void *)threads_ctx[tid].syscall_ctx.arg[i] != NULL))
+          if (likely((void *)threads_ctx[tid].syscall_ctx.arg[i] != NULL)){
             /*
              * argument i is changed by the system call;
              * the length of the change is given by
@@ -261,10 +260,60 @@ static void sysexit_save(THREADID tid, CONTEXT *ctx, SYSCALL_STANDARD std,
              */
             tagmap_clrn(threads_ctx[tid].syscall_ctx.arg[i],
                         syscall_desc[syscall_nr].map_args[i]);
+          }
     }
   }
 }
 
+/*
+ * trace inspection (instrumentation function)
+ *
+ * traverse the basic blocks (BBLs) on the trace and
+ * inspect every instruction for instrumenting it
+ * accordingly
+ *
+ * @trace:      instructions trace; given by PIN
+ */
+static void trace_inspect(TRACE trace, VOID *v) {
+  /* iterators */
+  BBL bbl;
+  INS ins;
+  xed_iclass_enum_t ins_indx;
+
+  /* traverse all the BBLs in the trace */
+  for (bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
+    /* traverse all the instructions in the BBL */
+    for (ins = BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+      // if (!is_tainted())
+      //  continue;
+      /*
+       * use XED to decode the instruction and
+       * extract its opcode
+       */
+      ins_indx = (xed_iclass_enum_t)INS_Opcode(ins);
+
+      /*
+       * invoke the pre-ins insrumentation callback;
+       * optimized branch
+       */
+      if (unlikely(ins_desc[ins_indx].pre != NULL))
+        ins_desc[ins_indx].pre(ins);
+
+      /* analyze the instruction */
+      /*
+      if (is_tainted())
+        LOGD("[ins] %s\n", INS_Disassemble(ins).c_str());
+      */
+      ins_inspect(ins);
+      /*
+       * invoke the post-ins insrumentation callback;
+       * optimized branch
+       */
+      if (unlikely(ins_desc[ins_indx].post != NULL))
+        ins_desc[ins_indx].post(ins);
+    }
+  }
+}
 
 /*
  * initialize thread contexts
@@ -336,6 +385,9 @@ int libdft_init() {
 
   /* initialize the ins descriptors */
   (void)memset(ins_desc, 0, sizeof(ins_desc));
+
+  /* register trace_ins() to be called for every trace */
+  TRACE_AddInstrumentFunction(trace_inspect, NULL);
 
   /* success */
   return 0;

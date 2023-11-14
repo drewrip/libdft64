@@ -46,35 +46,31 @@
 
 extern thread_ctx_t *threads_ctx;
 
-std::unordered_map<uint8_t, tag_t> value_map8;
-std::unordered_map<uint16_t, tag_t> value_map16;
-std::unordered_map<uint32_t, tag_t> value_map32;
-std::unordered_map<uint64_t, tag_t> value_map64;
+std::unordered_map<uint64_t, tag_t> value_map;
 
 // PIN_FAST_ANALYSIS_CALL
 void tagmap_setb(ADDRINT addr, tag_t const &tag) {
-    printf("tagmap_setb(): addr=%lx, value=%d\n", addr, *(uint8_t*)Addrint2VoidStar(addr));
-    value_map8[*(uint8_t*)Addrint2VoidStar(addr)] = tag; // Running out of shared memory!
-    printf("finished tagmap_setb: size=%zu\n", value_map8.size());
+    //printf("tagmap_setb\n");
+    value_map[(uint64_t)*(uint8_t*)addr] = tag;
 }
 
 void tagmap_setw(ADDRINT addr, tag_t const &tag) {
-    printf("tagmap_setw()\n");
-    value_map16[*(uint16_t*)Addrint2VoidStar(addr)] = tag;
+    //printf("tagmap_setw\n");
+    value_map[(uint64_t)*(uint16_t*)addr] = tag;
 }
 
 void tagmap_setl(ADDRINT addr, tag_t const &tag) {
-    printf("tagmap_setl()\n");
-    value_map32[*(uint32_t*)Addrint2VoidStar(addr)] = tag;
+    //printf("tagmap_setl\n");
+    value_map[(uint64_t)*(uint32_t*)addr] = tag;
 }
 
 void tagmap_setq(ADDRINT addr, tag_t const &tag) {
-    printf("tagmap_setq()\n");
-    value_map64[*(uint64_t*)Addrint2VoidStar(addr)] = tag;
+    //printf("tagmap_setq\n");
+    value_map[*(uint64_t*)addr] = tag;
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag) {
-    printf("tagmap_setn()\n");
+    //printf("tagmap_setn\n");
     switch(n){
     case 1:
         tagmap_setb(addr, tag);
@@ -98,25 +94,45 @@ void PIN_FAST_ANALYSIS_CALL tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag
 
 void tagmap_setb_reg(THREADID tid, unsigned int reg_idx, unsigned int off,
                      tag_t const &tag) {
-    printf("tagmap_setb_reg()\n");
     threads_ctx[tid].vcpu.gpr[reg_idx][off] = tag;
 }
 
-tag_t tagmap_getb(ADDRINT addr) { return value_map8[*(uint8_t*)Addrint2VoidStar(addr)]; }
+tag_t tagmap_getb(ADDRINT addr) {
+    //printf("tagmap_getb\n");
+    std::unordered_map<uint64_t, tag_t>::const_iterator got = value_map.find((uint64_t)*(uint8_t*)addr);
+    if(got == value_map.end()) return tag_traits<tag_t>::cleared_val;
+    //printf("finished getb\n");
+    return got->second;
+}
 
-tag_t tagmap_getw(ADDRINT addr) { return value_map16[*(uint16_t*)Addrint2VoidStar(addr)]; }
+tag_t tagmap_getw(ADDRINT addr) {
+    //printf("tagmap_getw\n");
+    std::unordered_map<uint64_t, tag_t>::const_iterator got = value_map.find((uint64_t)*(uint16_t*)addr);
+    if(got == value_map.end()) return tag_traits<tag_t>::cleared_val;
+    return got->second;
+}
 
-tag_t tagmap_getl(ADDRINT addr) { return value_map32[*(uint32_t*)Addrint2VoidStar(addr)]; }
+tag_t tagmap_getl(ADDRINT addr) {
+    //printf("tagmap_getl\n");
+    std::unordered_map<uint64_t, tag_t>::const_iterator got = value_map.find((uint64_t)*(uint32_t*)addr);
+    if(got == value_map.end()) return tag_traits<tag_t>::cleared_val;
+    return got->second;
+}
 
-tag_t tagmap_getq(ADDRINT addr) { return value_map64[*(uint64_t*)Addrint2VoidStar(addr)]; }
+tag_t tagmap_getq(ADDRINT addr) {
+    //printf("tagmap_getq\n");
+    std::unordered_map<uint64_t, tag_t>::const_iterator got = value_map.find(*(uint64_t*)addr);
+    if(got == value_map.end()) return tag_traits<tag_t>::cleared_val;
+    return got->second;
+}
 
 tag_t tagmap_getb_reg(THREADID tid, unsigned int reg_idx, unsigned int off) {
-    printf("tagmap_getb_reg()\n");
-  return threads_ctx[tid].vcpu.gpr[reg_idx][off];
+    //printf("tagmap_getb_reg\n");
+    return threads_ctx[tid].vcpu.gpr[reg_idx][off];
 }
 
 tag_t tagmap_getn(ADDRINT addr, unsigned int n) {
-    printf("tagmap_getn: address=%zu, n=%u\n", addr, n);
+    //printf("tagmap_getn\n");
     switch(n){
     case 1:
         return tagmap_getb(addr);
@@ -145,7 +161,7 @@ tag_t tagmap_getn(ADDRINT addr, unsigned int n) {
 }
 
 tag_t tagmap_getn_reg(THREADID tid, unsigned int reg_idx, unsigned int n) {
-    printf("tagmap_getn_reg()\n");
+    //printf("tagmap_getn_reg\n");
   tag_t ts = tag_traits<tag_t>::cleared_val;
   for (size_t i = 0; i < n; i++) {
     const tag_t t = tagmap_getb_reg(tid, reg_idx, i);
@@ -159,26 +175,27 @@ tag_t tagmap_getn_reg(THREADID tid, unsigned int reg_idx, unsigned int n) {
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_clrb(ADDRINT addr) {
-    value_map8.erase(*(uint8_t*)Addrint2VoidStar(addr));
+    //printf("tagmap_clrb\n");
+    value_map.erase((uint64_t)*(uint8_t*)addr);
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_clrw(ADDRINT addr) {
-    printf("tagmap_clrw()\n");
-    value_map16.erase(*(uint16_t*)Addrint2VoidStar(addr));
+    //printf("tagmap_clrw\n");
+    value_map.erase((uint64_t)*(uint16_t*)addr);
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_clrl(ADDRINT addr) {
-    printf("tagmap_clrl()\n");
-    value_map32.erase(*(uint32_t*)Addrint2VoidStar(addr));
+    //printf("tagmap_clrl\n");
+    value_map.erase((uint64_t)*(uint32_t*)addr);
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_clrq(ADDRINT addr) {
-    printf("tagmap_clrq()\n");
-    value_map64.erase(*(uint64_t*)Addrint2VoidStar(addr));
+    //printf("tagmap_clrq\n");
+    value_map.erase((uint64_t)*(uint64_t*)addr);
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_clrn(ADDRINT addr, UINT32 n) {
-    printf("tagmap_clrn()\n");
+    //printf("tagmap_clrn\n");
     switch(n){
     case 1:
         tagmap_clrb(addr);

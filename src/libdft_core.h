@@ -40,6 +40,7 @@
 #define VCPU_MASK8	0x01			/* 8-bit VCPU mask */
 
 /* core API */
+void ins_inspect(INS);
 // FLAG_TYPE ct(TAG_TYPE, TAG_TYPE);
 
 /* REG INDEX API*/

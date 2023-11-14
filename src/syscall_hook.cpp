@@ -122,7 +122,7 @@ static void post_read_hook(THREADID tid, syscall_ctx_t *ctx) {
     if (count > nr + 32) {
       count = nr + 32;
     }
-    printf("post_read_hook: tainting bytes\n");
+
     for (unsigned int i = 0; i < count; i++) {
       tag_t t = tag_alloc<tag_t>(read_off + i);
       tagmap_setb(buf + i, t);
@@ -155,7 +155,6 @@ static void post_pread64_hook(THREADID tid, syscall_ctx_t *ctx) {
       count = nr + 32;
     }
     /* set the tag markings */
-    printf("post_pread64_hook: tainting bytes\n");
     for (unsigned int i = 0; i < count; i++) {
       tag_t t = tag_alloc<tag_t>(read_off + i);
       tagmap_setb(buf + i, t);
@@ -184,7 +183,6 @@ static void post_mmap_hook(THREADID tid, syscall_ctx_t *ctx) {
   if (is_fuzzing_fd(fd)) {
     tainted = true;
     LOGD("[mmap] fd: %d, offset: %ld, size: %lu\n", fd, read_off, nr);
-    printf("post_mmap_hook: tainting bytes\n");
     for (unsigned int i = 0; i < nr; i++) {
       tag_t t = tag_alloc<tag_t>(read_off + i);
       tagmap_setb(buf + i, t);
@@ -197,7 +195,7 @@ static void post_mmap_hook(THREADID tid, syscall_ctx_t *ctx) {
 static void post_munmap_hook(THREADID tid, syscall_ctx_t *ctx) {
   const ADDRINT ret = ctx->ret;
   if ((void *)ret == (void *)-1)
-    return;
+    return; 
   const ADDRINT buf = ctx->arg[SYSCALL_ARG0];
   const size_t nr = ctx->arg[SYSCALL_ARG1];
 
