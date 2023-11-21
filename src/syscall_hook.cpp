@@ -128,8 +128,8 @@ static void post_read_hook(THREADID tid, syscall_ctx_t *ctx) {
       tagmap_setb(buf + i, t);
       // LOGD("[read] %d, lb: %d,  %s\n", i, t, tag_sprint(t).c_str());
     }
-
-    tagmap_setb_reg(tid, DFT_REG_RAX, 0, BDD_LEN_LB);
+    // Don't take rax for now since we don't have its value
+    // tagmap_setb_reg(tid, DFT_REG_RAX, 0, BDD_LEN_LB);
 
   } else {
     /* clear the tag markings */

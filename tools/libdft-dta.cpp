@@ -169,11 +169,12 @@ alert(ADDRINT ins, ADDRINT bt)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_reg64(ADDRINT reg, ADDRINT addr)
 {
+    printf("assert_reg64\n");
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(threads_ctx->vcpu.gpr[reg][0], tagmap_getn(addr, 8));
+	return tagmap_getq_reg(addr);
 }
 
 /*
@@ -189,11 +190,12 @@ assert_reg64(ADDRINT reg, ADDRINT addr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_reg32(ADDRINT reg, ADDRINT addr)
 {
+    printf("assert_reg32\n");
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK32, tagmap_getl(addr));
+	return tagmap_getl_reg(addr & VCPU_MASK32);
 }
 
 /*
@@ -209,11 +211,12 @@ assert_reg32(ADDRINT reg, ADDRINT addr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_reg16(ADDRINT reg, ADDRINT addr)
 {
+    printf("assert_reg16\n");
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK16, tagmap_getw(addr));
+	return tagmap_getw_reg(addr & VCPU_MASK16);
 }
 
 /*
@@ -229,11 +232,12 @@ assert_reg16(ADDRINT reg, ADDRINT addr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_reg8(ADDRINT reg, ADDRINT addr)
 {
+    printf("assert_reg8\n");
 	/* 
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tag_combine(threads_ctx->vcpu.gpr[reg][0] & VCPU_MASK8, tagmap_getw(addr));
+	return tagmap_getb_reg(addr & VCPU_MASK8);
 }
 
 /*
@@ -249,8 +253,8 @@ assert_reg8(ADDRINT reg, ADDRINT addr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem64(ADDRINT paddr, ADDRINT taddr)
 {
-    //printf("assert_mem64: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getn(paddr, 8) | tagmap_getn(taddr, 8));
-	return tagmap_getn(paddr, 8) | tagmap_getn(taddr, 8);
+    printf("assert_mem64: paddr[%lx]=%lu (t:%d), taddr[%lx]=%lu (t:%d)\n", paddr, *(uint64_t*)paddr, tagmap_getq(paddr), taddr, *(uint64_t*)taddr, tagmap_getq(taddr));
+	return tagmap_getq(paddr) | tagmap_getq(taddr);
 }
 
 /*
@@ -266,7 +270,7 @@ assert_mem64(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem32(ADDRINT paddr, ADDRINT taddr)
 {
-    //printf("assert_mem32: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getl(paddr) | tagmap_getl(taddr));
+    printf("assert_mem32\n");
 	return tagmap_getl(paddr) | tagmap_getl(taddr);
 }
 
@@ -283,7 +287,7 @@ assert_mem32(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem16(ADDRINT paddr, ADDRINT taddr)
 {
-    //printf("assert_mem16: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getw(paddr) | tagmap_getw(taddr));
+    printf("assert_mem16\n");
 	return tagmap_getw(paddr) | tagmap_getw(taddr);
 }
 
@@ -300,7 +304,7 @@ assert_mem16(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem8(ADDRINT paddr, ADDRINT taddr)
 {
-    //printf("assert_mem8: paddr=%lx taddr=%lx res=%d\n", paddr, taddr, tagmap_getb(paddr) | tagmap_getb(taddr));
+    printf("assert_mem8\n");
 	return tagmap_getb(paddr) | tagmap_getb(taddr);
 }
 
@@ -314,7 +318,6 @@ assert_mem8(ADDRINT paddr, ADDRINT taddr)
 static void
 dta_instrument_jmp_call(INS ins)
 {
-    printf("dta_instrument_jmp_call\n");
 	/* temporaries */
 	REG reg;
 
@@ -324,10 +327,8 @@ dta_instrument_jmp_call(INS ins)
 	 */
 	if (unlikely(INS_IsIndirectBranchOrCall(ins))) {
 		/* perform operand analysis */
-        printf("inside unlikely branch\n");
 		/* call via register */
 		if (INS_OperandIsReg(ins, 0)) {
-            printf("call via register\n");
 			/* extract the register from the instruction */
 			reg = INS_OperandReg(ins, 0);
 
@@ -386,7 +387,6 @@ dta_instrument_jmp_call(INS ins)
 					IARG_END);
 		}
 		else {
-            printf("call via memory\n");
 		/* call via memory */
 			/* size analysis */
             
@@ -443,7 +443,6 @@ dta_instrument_jmp_call(INS ins)
 					IARG_BRANCH_TARGET_ADDR,
 					IARG_END);
 		}
-        printf("adding alert\n");
 		/*
 		 * instrument alert() before branch;
 		 * conditional instrumentation -- then
@@ -468,7 +467,6 @@ dta_instrument_jmp_call(INS ins)
 static void
 dta_instrument_ret(INS ins)
 {
-    printf("dta_instrument_ret\n");
 	/* size analysis */
     if (INS_MemoryReadSize(ins) == QUAD_LEN)
 		/*
@@ -542,7 +540,6 @@ dta_instrument_ret(INS ins)
 static void
 post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
 {
-    printf("libdft-dta: post_readv_hook\n");
 	/* iterators */
 	int i;
 	struct iovec *iov;
@@ -590,7 +587,6 @@ post_readv_hook(THREADID tid, syscall_ctx_t *ctx)
 static void
 post_read_hook(THREADID tid, syscall_ctx_t *ctx)
 {
-    printf("libdft-dta: post_read_hook\n");
     /* read() was not successful; optimized branch */
     if (unlikely((long)ctx->ret <= 0))
                 return;
@@ -619,7 +615,6 @@ post_read_hook(THREADID tid, syscall_ctx_t *ctx)
 static void
 post_socketcall_hook(THREADID tid, syscall_ctx_t *ctx)
 {
-    printf("socketcall_hook\n");
 	/* message header; recvmsg(2) */
 	struct msghdr *msg;
 

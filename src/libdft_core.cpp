@@ -49,60 +49,6 @@ static void PIN_FAST_ANALYSIS_CALL _cqo(THREADID tid) {
     dstrtag[i] = srcrtag[i];
 }
 
-static void PIN_FAST_ANALYSIS_CALL m2r_restore_opw(THREADID tid, ADDRINT src) {
-  for (size_t i = 0; i < 8; i++) {
-    if (i == DFT_REG_RSP)
-      continue;
-    size_t offset = (i < DFT_REG_RSP) ? (i << 1) : ((i - 1) << 1);
-    tag_t src_tag[] = M16TAG(src + offset);
-    RTAG[DFT_REG_RDI + i][0] = src_tag[0];
-    RTAG[DFT_REG_RDI + i][1] = src_tag[1];
-  }
-}
-
-static void PIN_FAST_ANALYSIS_CALL m2r_restore_opl(THREADID tid, ADDRINT src) {
-  for (size_t i = 0; i < 8; i++) {
-    if (i == DFT_REG_RSP)
-      continue;
-    size_t offset = (i < DFT_REG_RSP) ? (i << 2) : ((i - 1) << 2);
-    tag_t src_tag[] = M32TAG(src + offset);
-    RTAG[DFT_REG_RDI + i][0] = src_tag[0];
-    RTAG[DFT_REG_RDI + i][1] = src_tag[1];
-    RTAG[DFT_REG_RDI + i][2] = src_tag[2];
-    RTAG[DFT_REG_RDI + i][3] = src_tag[3];
-  }
-}
-
-static void PIN_FAST_ANALYSIS_CALL r2m_save_opw(THREADID tid, ADDRINT dst) {
-  for (int i = DFT_REG_RDI; i < DFT_REG_XMM0; i++) {
-    if (i == DFT_REG_RSP)
-      continue;
-    size_t offset = (i < DFT_REG_RSP) ? (i << 1) : ((i - 1) << 1);
-    tag_t src_tag[] = R16TAG(i);
-
-    tagmap_setb(dst + offset, src_tag[0]);
-    tagmap_setb(dst + offset + 1, src_tag[1]);
-  }
-}
-
-static void PIN_FAST_ANALYSIS_CALL r2m_save_opl(THREADID tid, ADDRINT dst) {
-  for (int i = DFT_REG_RDI; i < DFT_REG_XMM0; i++) {
-    if (i == DFT_REG_RSP)
-      continue;
-    size_t offset = (i < DFT_REG_RSP) ? (i << 2) : ((i - 1) << 2);
-    tag_t src_tag[] = R32TAG(i);
-
-    for (size_t j = 0; j < 4; j++)
-      tagmap_setb(dst + offset + j, src_tag[j]);
-  }
-}
-
-static bool reg_eq(INS ins) {
-  return (!INS_OperandIsImmediate(ins, OP_1) &&
-          INS_MemoryOperandCount(ins) == 0 &&
-          INS_OperandReg(ins, OP_0) == INS_OperandReg(ins, OP_1));
-}
-
 static void PIN_FAST_ANALYSIS_CALL r_cmp(THREADID tid, ADDRINT dst,
                                          uint64_t val) {
   if (!tag_is_empty(RTAG[dst][0])) {
@@ -176,8 +122,6 @@ void ins_inspect(INS ins) {
   case XED_ICLASS_OR:
   case XED_ICLASS_OR_LOCK:
   case XED_ICLASS_POR:
-    ins_binary_op(ins);
-    break;
   case XED_ICLASS_XOR:
   case XED_ICLASS_SBB:
   case XED_ICLASS_SUB:
@@ -188,44 +132,19 @@ void ins_inspect(INS ins) {
   case XED_ICLASS_PSUBD:
   case XED_ICLASS_XORPS:
   case XED_ICLASS_XORPD:
-    if (reg_eq(ins)) {
-      ins_clear_op(ins);
-    } else {
-      ins_binary_op(ins);
-    }
-    break;
   case XED_ICLASS_DIV:
   case XED_ICLASS_IDIV:
   case XED_ICLASS_MUL:
-    ins_unitary_op(ins);
-    break;
   case XED_ICLASS_IMUL:
-    if (INS_OperandIsImplicit(ins, OP_1)) {
-      ins_unitary_op(ins);
-    } else {
-      ins_binary_op(ins);
-      // if ternary // TODO
-    }
-    break;
   case XED_ICLASS_MULSD:
   case XED_ICLASS_MULPD:
   case XED_ICLASS_DIVSD:
-    ins_binary_op(ins);
 
   // **** xfer ****
   case XED_ICLASS_BSF:
   case XED_ICLASS_BSR:
   case XED_ICLASS_TZCNT:
   case XED_ICLASS_MOV:
-    if (INS_OperandIsImmediate(ins, OP_1) ||
-        (INS_OperandIsReg(ins, OP_1) &&
-         REG_is_seg(INS_OperandReg(ins, OP_1)))) {
-      ins_clear_op(ins);
-    } else {
-      ins_xfer_op(ins);
-    }
-    break;
-
   case XED_ICLASS_MOVD:
   case XED_ICLASS_MOVQ:
   case XED_ICLASS_MOVAPS:
@@ -248,18 +167,12 @@ void ins_inspect(INS ins) {
   case XED_ICLASS_MOVSD_XMM:
   case XED_ICLASS_CVTSI2SD:
   case XED_ICLASS_CVTSD2SI:
-    ins_xfer_op(ins);
-    break;
   case XED_ICLASS_MOVLPD:
   case XED_ICLASS_MOVLPS:
-    ins_movlp(ins);
-    break;
   // case XED_ICLASS_VMOVLPD:
   // case XED_ICLASS_VMOVLPS:
   case XED_ICLASS_MOVHPD:
   case XED_ICLASS_MOVHPS:
-    ins_movhp(ins);
-    break;
   // case XED_ICLASS_VMOVHPD:
   // case XED_ICLASS_VMOVHPS:
   // case XED_ICLASS_MOVHLPS:
@@ -280,17 +193,11 @@ void ins_inspect(INS ins) {
   case XED_ICLASS_CMOVP:
   case XED_ICLASS_CMOVS:
   case XED_ICLASS_CMOVZ:
-    ins_xfer_op_predicated(ins);
-    break;
   case XED_ICLASS_MOVBE:
-    ins_movbe_op(ins);
-    break;
   case XED_ICLASS_MOVSX:
   case XED_ICLASS_MOVZX:
-    ins_movsx_op(ins);
     break;
   case XED_ICLASS_MOVSXD:
-    ins_movsxd_op(ins);
     break;
   case XED_ICLASS_CBW:
     CALL(_cbw);
@@ -329,118 +236,82 @@ void ins_inspect(INS ins) {
   case XED_ICLASS_SETP:
   case XED_ICLASS_SETS:
   case XED_ICLASS_SETZ:
-    ins_clear_op_predicated(ins);
     break;
   case XED_ICLASS_STMXCSR:
-    ins_clear_op(ins);
     break;
   case XED_ICLASS_SMSW:
   case XED_ICLASS_STR:
   case XED_ICLASS_LAR:
-    ins_clear_op(ins);
     break;
   case XED_ICLASS_RDPID:
   case XED_ICLASS_RDRAND:
-    ins_clear_op(ins);
     break;
   case XED_ICLASS_RDPMC:
   case XED_ICLASS_RDTSC:
-    ins_clear_op_l2(ins);
     break;
   case XED_ICLASS_CPUID:
-    ins_clear_op_l4(ins);
     break;
   case XED_ICLASS_LAHF:
-    ins_clear_op(ins);
     break;
   case XED_ICLASS_CMPXCHG:
   case XED_ICLASS_CMPXCHG_LOCK:
-    ins_cmpxchg_op(ins);
     break;
   case XED_ICLASS_XCHG:
-    ins_xchg_op(ins);
     break;
   case XED_ICLASS_XADD:
   case XED_ICLASS_XADD_LOCK:
-    ins_xadd_op(ins);
     break;
   case XED_ICLASS_XLAT:
-    M2R_CALL(m2r_xfer_opb_l, REG_AL);
     break;
   case XED_ICLASS_LODSB:
-    M2R_CALL_P(m2r_xfer_opb_l, REG_AL);
     break;
   case XED_ICLASS_LODSW:
-    M2R_CALL_P(m2r_xfer_opw, REG_AX);
     break;
   case XED_ICLASS_LODSD:
-    M2R_CALL_P(m2r_xfer_opl, REG_EAX);
     break;
   case XED_ICLASS_LODSQ:
-    M2R_CALL_P(m2r_xfer_opq, REG_RAX);
     break;
   case XED_ICLASS_STOSB:
-    ins_stosb(ins);
     break;
   case XED_ICLASS_STOSW:
-    ins_stosw(ins);
     break;
   case XED_ICLASS_STOSD:
-    ins_stosd(ins);
     break;
   case XED_ICLASS_STOSQ:
-    ins_stosq(ins);
     break;
   case XED_ICLASS_MOVSQ:
-    M2M_CALL(m2m_xfer_opq);
     break;
   case XED_ICLASS_MOVSD:
-    M2M_CALL(m2m_xfer_opl);
     break;
   case XED_ICLASS_MOVSW:
-    M2M_CALL(m2m_xfer_opw);
     break;
   case XED_ICLASS_MOVSB:
-    M2M_CALL(m2m_xfer_opb);
     break;
   case XED_ICLASS_SALC:
-    ins_clear_op(ins);
     break;
   case XED_ICLASS_POP:
-    ins_pop_op(ins);
     break;
   case XED_ICLASS_PUSH:
-    ins_push_op(ins);
     break;
   case XED_ICLASS_POPA:
-    M_CALL_R(m2r_restore_opw);
     break;
   case XED_ICLASS_POPAD:
-    M_CALL_R(m2r_restore_opl);
     break;
   case XED_ICLASS_PUSHA:
-    M_CALL_W(r2m_save_opw);
     break;
   case XED_ICLASS_PUSHAD:
-    M_CALL_W(r2m_save_opl);
     break;
   case XED_ICLASS_PUSHF:
-    M_CLEAR_N(2);
     break;
   case XED_ICLASS_PUSHFD:
-    M_CLEAR_N(4);
     break;
   case XED_ICLASS_PUSHFQ:
-    M_CLEAR_N(8);
     break;
   case XED_ICLASS_LEA:
-    ins_lea(ins);
     break;
   case XED_ICLASS_PCMPEQB:
-    ins_binary_op(ins);
     break;
   case XED_ICLASS_FNSTCW:
-    M_CLEAR_N(2);
     break;
     // TODO
   case XED_ICLASS_XGETBV:

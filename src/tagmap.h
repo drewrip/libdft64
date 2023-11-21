@@ -46,16 +46,22 @@ void tagmap_setl(ADDRINT addr, tag_t const &tag);
 void tagmap_setq(ADDRINT addr, tag_t const &tag);
 void tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag);
 
-void tagmap_setb_reg(THREADID tid, unsigned int reg_idx, unsigned int off,
-                     tag_t const &tag);
+void tagmap_setb_reg(ADDRINT addr, tag_t const &tag);
+void tagmap_setw_reg(ADDRINT addr, tag_t const &tag);
+void tagmap_setl_reg(ADDRINT addr, tag_t const &tag);
+void tagmap_setq_reg(ADDRINT addr, tag_t const &tag);
 
 tag_t tagmap_getb(ADDRINT addr);
-tag_t tagmap_getb_reg(THREADID tid, unsigned int reg_idx, unsigned int off);
 tag_t tagmap_getw(ADDRINT addr);
 tag_t tagmap_getl(ADDRINT addr);
 tag_t tagmap_getq(ADDRINT addr);
 tag_t tagmap_getn(ADDRINT addr, unsigned int size);
-tag_t tagmap_getn_reg(THREADID tid, unsigned int reg_idx, unsigned int n);
+
+tag_t tagmap_getb_reg(ADDRINT addr);
+tag_t tagmap_getw_reg(ADDRINT addr);
+tag_t tagmap_getl_reg(ADDRINT addr);
+tag_t tagmap_getq_reg(ADDRINT addr);
+tag_t tagmap_getn_reg(ADDRINT addr, unsigned int n);
 
 void tagmap_clrb(ADDRINT addr);
 void tagmap_clrw(ADDRINT addr);
