@@ -45,6 +45,7 @@
 #include <set>
 #include <unistd.h>
 #include <linux/net.h>
+#include <iostream>
 
 #include "branch_pred.h"
 #include "libdft_api.h"
@@ -249,6 +250,7 @@ assert_reg8(ADDRINT reg, ADDRINT addr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem64(ADDRINT paddr, ADDRINT taddr)
 {
+    std::cout << "EA: " << Addrint2VoidStar(paddr) << ", DEST: " << Addrint2VoidStar(taddr) << std::endl;
 	return tagmap_getn(paddr, 8) | tagmap_getn(taddr, 8);
 }
 
@@ -265,6 +267,7 @@ assert_mem64(ADDRINT paddr, ADDRINT taddr)
 static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem32(ADDRINT paddr, ADDRINT taddr)
 {
+    std::cout << "EA: " << Addrint2VoidStar(paddr) << ", DEST: " << Addrint2VoidStar(taddr) << std::endl;
 	return tagmap_getl(paddr) | tagmap_getl(taddr);
 }
 
@@ -538,12 +541,18 @@ post_read_hook(THREADID tid, syscall_ctx_t *ctx)
                 return;
 	
 	/* taint-source */
-	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end())
+	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end()){
         	/* set the tag markings */
+            std::cout << "Setting tagmap for fd=" << ctx->arg[SYSCALL_ARG0]
+                << ", n=" << (size_t)ctx->ret
+                << ", start=" << Addrint2VoidStar(ctx->arg[SYSCALL_ARG1])
+                << std::endl;
+
 	        tagmap_setn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret, dta_tag);
-	else
+    } else {
         	/* clear the tag markings */
 	        tagmap_clrn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret);
+    }
 }
 
 /*
@@ -861,11 +870,130 @@ post_open_hook(THREADID tid, syscall_ctx_t *ctx)
 	/* not successful; optimized branch */
 	if (unlikely((long)ctx->ret < 0))
 		return;
-	
+
 	/* ignore dynamic shared libraries */
 	if (strstr((char *)ctx->arg[SYSCALL_ARG0], DLIB_SUFF) == NULL &&
-		strstr((char *)ctx->arg[SYSCALL_ARG0], DLIB_SUFF_ALT) == NULL)
+		strstr((char *)ctx->arg[SYSCALL_ARG0], DLIB_SUFF_ALT) == NULL){
+        std::cout << "Adding fd=" << (int)ctx->ret << ", name=" << (char *)ctx->arg[SYSCALL_ARG0] << std::endl;
 		fdset.insert((int)ctx->ret);
+    }
+}
+
+static void
+post_openat_hook(THREADID tid, syscall_ctx_t *ctx)
+{
+	/* not successful; optimized branch */
+	if (unlikely((long)ctx->ret < 0))
+		return;
+
+	/* ignore dynamic shared libraries */
+	if (strstr((char *)ctx->arg[SYSCALL_ARG1], DLIB_SUFF) == NULL &&
+		strstr((char *)ctx->arg[SYSCALL_ARG1], DLIB_SUFF_ALT) == NULL){
+        std::cout << "Adding fd=" << (int)ctx->ret << ", name=" << (char *)ctx->arg[SYSCALL_ARG1] << std::endl;
+		fdset.insert((int)ctx->ret);
+    }
+}
+
+uint64_t strtoul_handler(CONTEXT * ctxt, AFUNPTR pf_strtoul, char* text, char** end, int base){
+    std::cout << "setting tag bits for strtoul" << std::endl;
+    uint64_t res;
+    PIN_CallApplicationFunction(ctxt, PIN_ThreadId(),
+              CALLINGSTD_DEFAULT,  pf_strtoul,
+              NULL,
+              PIN_PARG(unsigned long), &res,
+              PIN_PARG(char*), text,
+              PIN_PARG(char**), end,
+              PIN_PARG(int), base,
+              PIN_PARG_END());
+
+    tagmap_setn((ADDRINT)&res, 8, dta_tag);
+    return res;
+}
+
+int scanf_handler(CONTEXT * ctxt, AFUNPTR pf_scanf, char* format, void* buffer){
+    std::cout << "setting tag bits for scanf" << std::endl;
+    int res;
+    PIN_CallApplicationFunction(ctxt, PIN_ThreadId(),
+              CALLINGSTD_DEFAULT,  pf_scanf,
+              NULL,
+              PIN_PARG(int), &res,
+              PIN_PARG(char*), format,
+              PIN_PARG(void*), buffer,
+              PIN_PARG_END());
+
+    tagmap_setn((ADDRINT)buffer, 8, dta_tag);
+    return res;
+}
+
+int getline_handler(CONTEXT * ctxt, AFUNPTR pf_getline, char** lineptr, size_t* n, FILE* file){
+    std::cout << "setting tag bits for getline" << std::endl;
+    ssize_t res;
+    PIN_CallApplicationFunction(ctxt, PIN_ThreadId(),
+              CALLINGSTD_DEFAULT,  pf_getline,
+              NULL,
+              PIN_PARG(ssize_t), &res,
+              PIN_PARG(char**), lineptr,
+              PIN_PARG(size_t*), n,
+              PIN_PARG(FILE*), file,
+              PIN_PARG_END());
+
+    tagmap_setn((ADDRINT)lineptr, *n, dta_tag);
+    return res;
+}
+
+VOID Image_propagate(IMG img, VOID *v){
+    std::cout << "Loading image: " << IMG_Name(img) << std::endl;
+
+    // Taint the return value of strtoul
+    RTN __strtoul = RTN_FindByName(img, "strtoul");
+    if(RTN_Valid(__strtoul)){
+        std::cout << "RTN routine name: " << RTN_Name(__strtoul) << std::endl;
+        PROTO protoStrtoul = PROTO_Allocate(PIN_PARG(unsigned long), CALLINGSTD_DEFAULT, "strtoul",
+                PIN_PARG(char*), PIN_PARG(char**), PIN_PARG(int), PIN_PARG_END());
+
+        RTN_ReplaceSignature(__strtoul, AFUNPTR(strtoul_handler),
+                     IARG_PROTOTYPE, protoStrtoul,
+                     IARG_CONST_CONTEXT,
+                     IARG_ORIG_FUNCPTR,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                     IARG_END);
+    }
+
+    // Taint all of the buffers passed into scanf
+    RTN __scanf = RTN_FindByName(img, "__isoc99_scanf");
+    if(RTN_Valid(__scanf)){
+        std::cout << "RTN routine name: " << RTN_Name(__scanf) << std::endl;
+        PROTO proto = PROTO_Allocate(PIN_PARG(int), CALLINGSTD_DEFAULT, "scanf",
+                PIN_PARG(char*), PIN_PARG(uint64_t*), PIN_PARG_END());
+
+        RTN_ReplaceSignature(__scanf, AFUNPTR(scanf_handler),
+                     IARG_PROTOTYPE, proto,
+                     IARG_CONST_CONTEXT,
+                     IARG_ORIG_FUNCPTR,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                     IARG_END);
+    }
+
+    // Taint the lineptr where the line is placed
+    RTN __getline = RTN_FindByName(img, "getline");
+    if(RTN_Valid(__getline)){
+        std::cout << "RTN routine name: " << RTN_Name(__getline) << std::endl;
+        PROTO proto = PROTO_Allocate(PIN_PARG(ssize_t), CALLINGSTD_DEFAULT, "getline",
+                PIN_PARG(char**), PIN_PARG(size_t), PIN_PARG(FILE*), PIN_PARG_END());
+
+        RTN_ReplaceSignature(__scanf, AFUNPTR(scanf_handler),
+                     IARG_PROTOTYPE, proto,
+                     IARG_CONST_CONTEXT,
+                     IARG_ORIG_FUNCPTR,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                     IARG_END);
+    }
+
 }
 
 /* 
@@ -889,7 +1017,9 @@ main(int argc, char **argv){
 	if (unlikely(libdft_init() != 0))
 		/* failed */
 		goto err;
-	
+
+    IMG_AddInstrumentFunction(Image_propagate, 0);
+
 	/* 
 	 * handle control transfer instructions
 	 *
@@ -948,6 +1078,8 @@ main(int argc, char **argv){
 	if (fs.Value() != 0) {
 		(void)syscall_set_post(&syscall_desc[__NR_open],
 				post_open_hook);
+		(void)syscall_set_post(&syscall_desc[__NR_openat],
+				post_openat_hook);
 		(void)syscall_set_post(&syscall_desc[__NR_creat],
 				post_open_hook);
 	}

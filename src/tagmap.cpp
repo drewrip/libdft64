@@ -43,6 +43,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <iostream>
+
 tag_dir_t tag_dir;
 extern thread_ctx_t *threads_ctx;
 
@@ -138,6 +140,7 @@ void PIN_FAST_ANALYSIS_CALL tagmap_clrn(ADDRINT addr, UINT32 n) {
 }
 
 void PIN_FAST_ANALYSIS_CALL tagmap_setn(ADDRINT addr, UINT32 n, tag_t const &tag) {
+  std::cout << "setn: addr=" << Addrint2VoidStar(addr) << ", n=" << n << std::endl;
   ADDRINT i;
   for (i = addr; i < addr + n; i++) {
     tagmap_setb(i, tag);
