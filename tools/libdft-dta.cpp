@@ -45,6 +45,7 @@
 #include <set>
 #include <unistd.h>
 #include <linux/net.h>
+#include <iostream>
 
 #include "branch_pred.h"
 #include "libdft_api.h"
@@ -174,7 +175,9 @@ assert_reg64(ADDRINT reg, ADDRINT addr)
 	 * combine the register tag along with the tag
 	 * markings of the target address
 	 */
-	return tagmap_getq_reg(addr);
+    ADDRINT r = tagmap_getq_reg(addr); 
+    printf("returning from assert_reg64\n");
+	return r;
 }
 
 /*
@@ -254,6 +257,7 @@ static ADDRINT PIN_FAST_ANALYSIS_CALL
 assert_mem64(ADDRINT paddr, ADDRINT taddr)
 {
     printf("assert_mem64: paddr[%lx]=%lu (t:%d), taddr[%lx]=%lu (t:%d)\n", paddr, *(uint64_t*)paddr, tagmap_getq(paddr), taddr, *(uint64_t*)taddr, tagmap_getq(taddr));
+    std::cout << "FINDBYADDR: " << RTN_FindNameByAddress(taddr) << std::endl;
 	return tagmap_getq(paddr) | tagmap_getq(taddr);
 }
 
@@ -594,6 +598,7 @@ post_read_hook(THREADID tid, syscall_ctx_t *ctx)
 	/* taint-source */
 	if (fdset.find(ctx->arg[SYSCALL_ARG0]) != fdset.end()){
         	/* set the tag markings */
+            printf("read_hook setting tag with addr=%lu, n=%lu\n, fd=%lu", ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret, ctx->arg[SYSCALL_ARG0]);
 	        tagmap_setn(ctx->arg[SYSCALL_ARG1], (size_t)ctx->ret, dta_tag);
     } else {
         	/* clear the tag markings */
@@ -875,6 +880,109 @@ post_open_hook(THREADID tid, syscall_ctx_t *ctx)
 		fdset.insert((int)ctx->ret);
 }
 
+uint64_t strtoul_handler(CONTEXT * ctxt, AFUNPTR pf_strtoul, char* text, char** end, int base){
+    std::cout << "setting tag bits for strtoul" << std::endl;
+    uint64_t res;
+    PIN_CallApplicationFunction(ctxt, PIN_ThreadId(),
+              CALLINGSTD_DEFAULT,  pf_strtoul,
+              NULL,
+              PIN_PARG(unsigned long), &res,
+              PIN_PARG(char*), text,
+              PIN_PARG(char**), end,
+              PIN_PARG(int), base,
+              PIN_PARG_END());
+
+    tagmap_setq((ADDRINT)&res, dta_tag);
+    return res;
+}
+
+int scanf_handler(CONTEXT * ctxt, AFUNPTR pf_scanf, char* format, void* buffer){
+    std::cout << "setting tag bits for scanf" << std::endl;
+    int res;
+    PIN_CallApplicationFunction(ctxt, PIN_ThreadId(),
+              CALLINGSTD_DEFAULT,  pf_scanf,
+              NULL,
+              PIN_PARG(int), &res,
+              PIN_PARG(char*), format,
+              PIN_PARG(void*), buffer,
+              PIN_PARG_END());
+
+    tagmap_setq((ADDRINT)buffer, dta_tag);
+    return res;
+}
+
+int getline_handler(CONTEXT * ctxt, AFUNPTR pf_getline, char** lineptr, size_t* n, FILE* file){
+    std::cout << "setting tag bits for getline" << std::endl;
+    ssize_t res;
+    PIN_CallApplicationFunction(ctxt, PIN_ThreadId(),
+              CALLINGSTD_DEFAULT,  pf_getline,
+              NULL,
+              PIN_PARG(ssize_t), &res,
+              PIN_PARG(char**), lineptr,
+              PIN_PARG(size_t*), n,
+              PIN_PARG(FILE*), file,
+              PIN_PARG_END());
+
+    tagmap_setn((ADDRINT)lineptr, *n, dta_tag);
+    return res;
+}
+
+VOID Image_propagate(IMG img, VOID *v){
+    std::cout << "Loading image: " << IMG_Name(img) << std::endl;
+
+    // Taint the return value of strtoul
+    RTN __strtoul = RTN_FindByName(img, "strtoul");
+    if(RTN_Valid(__strtoul)){
+        std::cout << "RTN routine name: " << RTN_Name(__strtoul) << std::endl;
+        PROTO protoStrtoul = PROTO_Allocate(PIN_PARG(unsigned long), CALLINGSTD_DEFAULT, "strtoul",
+                PIN_PARG(char*), PIN_PARG(char**), PIN_PARG(int), PIN_PARG_END());
+
+        RTN_ReplaceSignature(__strtoul, AFUNPTR(strtoul_handler),
+                     IARG_PROTOTYPE, protoStrtoul,
+                     IARG_CONST_CONTEXT,
+                     IARG_ORIG_FUNCPTR,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                     IARG_END);
+    }
+
+    // Taint all of the buffers passed into scanf
+    RTN __scanf = RTN_FindByName(img, "__isoc99_scanf");
+    if(RTN_Valid(__scanf)){
+        std::cout << "RTN routine name: " << RTN_Name(__scanf) << std::endl;
+        PROTO proto = PROTO_Allocate(PIN_PARG(int), CALLINGSTD_DEFAULT, "scanf",
+                PIN_PARG(char*), PIN_PARG(uint64_t*), PIN_PARG_END());
+
+        RTN_ReplaceSignature(__scanf, AFUNPTR(scanf_handler),
+                     IARG_PROTOTYPE, proto,
+                     IARG_CONST_CONTEXT,
+                     IARG_ORIG_FUNCPTR,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                     IARG_END);
+    }
+
+    // Taint the lineptr where the line is placed
+    RTN __getline = RTN_FindByName(img, "getline");
+    if(RTN_Valid(__getline)){
+        std::cout << "RTN routine name: " << RTN_Name(__getline) << std::endl;
+        PROTO proto = PROTO_Allocate(PIN_PARG(ssize_t), CALLINGSTD_DEFAULT, "getline",
+                PIN_PARG(char**), PIN_PARG(size_t), PIN_PARG(FILE*), PIN_PARG_END());
+
+        RTN_ReplaceSignature(__scanf, AFUNPTR(scanf_handler),
+                     IARG_PROTOTYPE, proto,
+                     IARG_CONST_CONTEXT,
+                     IARG_ORIG_FUNCPTR,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 0,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 1,
+                     IARG_FUNCARG_ENTRYPOINT_VALUE, 2,
+                     IARG_END);
+    }
+
+}
+
+
 /* 
  * DTA
  *
@@ -896,7 +1004,9 @@ main(int argc, char **argv){
 	if (unlikely(libdft_init() != 0))
 		/* failed */
 		goto err;
-	
+
+    IMG_AddInstrumentFunction(Image_propagate, 0);
+
 	/* 
 	 * handle control transfer instructions
 	 *
@@ -962,7 +1072,7 @@ main(int argc, char **argv){
 	/* add stdin to the interesting descriptors set */
 	if (stdin_.Value() != 0)
 		fdset.insert(STDIN_FILENO);
-    
+
 	/* start Pin */
 	PIN_StartProgram();
 

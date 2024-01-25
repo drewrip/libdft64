@@ -63,7 +63,7 @@ void tagmap_setb(ADDRINT addr, tag_t const &tag) {
 
 void tagmap_setw(ADDRINT addr, tag_t const &tag) {
     value_map[(uint64_t)*(uint16_t*)addr] = tag;
-    printf("setw vm[%lu]=%d (%lu)\n", (uint64_t)*(uint16_t*)addr, tag, value_map.size());
+    printf("setw vm[%lu]=%d (%lu) raw=%lu\n", (uint64_t)*(uint16_t*)addr, tag, value_map.size(), addr);
 }
 
 void tagmap_setl(ADDRINT addr, tag_t const &tag) {
@@ -74,6 +74,7 @@ void tagmap_setl(ADDRINT addr, tag_t const &tag) {
 void tagmap_setq(ADDRINT addr, tag_t const &tag) {
     value_map[*(uint64_t*)addr] = tag;
     printf("setq vm[%lu]=%d (%lu)\n", *(uint64_t*)addr, tag, value_map.size());
+    fflush(stdout);
 }
 
 void tagmap_setb_reg(ADDRINT addr, tag_t const &tag) {
@@ -122,7 +123,6 @@ tag_t tagmap_getq(ADDRINT addr) {
     //printf("tagmap_getq\n");
     std::unordered_map<uint64_t, tag_t>::const_iterator got = value_map.find(*(uint64_t*)addr);
     if(got == value_map.end()){
-        printf("returning cleared_val\n");
         return tag_traits<tag_t>::cleared_val;
     }
     printf("k=%lu, v=%d\n", got->first, got->second);
@@ -153,6 +153,7 @@ tag_t tagmap_getl_reg(ADDRINT addr) {
 
 tag_t tagmap_getq_reg(ADDRINT addr) {
     //printf("tagmap_getq\n");
+    dump_value_map();
     std::unordered_map<uint64_t, tag_t>::const_iterator got = value_map.find((uint64_t)addr);
     if(got == value_map.end()) return tag_traits<tag_t>::cleared_val;
     return got->second;
